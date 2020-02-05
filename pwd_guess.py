@@ -958,7 +958,8 @@ class Trainer():
         logging.info('Building model...')
         if transformer:
             self.build_model_transformer()
-        self.build_model(self.model)
+        else:
+            self.build_model(self.model)
         logging.info('Done compiling model. Beginning training...')
         self.train_model(serializer)
 
