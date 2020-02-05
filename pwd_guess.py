@@ -46,6 +46,9 @@ from enum import IntEnum
 
 import pylru
 
+from keras_transformer import get_model, decode
+import tensorflow
+from keras_bert import get_custom_objects
 
 import generator
 
@@ -98,7 +101,7 @@ class CharacterTable():
     def encode_many(self, string_list, maxlen=None, y_vec=False):
         maxlen = maxlen if maxlen else self.maxlen
         x_str_list = map(lambda x: self.pad_to_len(x, maxlen), string_list)
-        if self.embedding and not y_vec:
+        if transformer or (self.embedding and not y_vec):
             x_vec = np.zeros(shape=(len(string_list), maxlen), dtype=np.int8)
         else:
             x_vec = np.zeros((len(string_list), maxlen, self.vocab_size),
@@ -126,7 +129,12 @@ class CharacterTable():
 
     def y_encode_into(self, Y, C):
         for i, c in enumerate(C):
-            Y[i, self.char_indices[c]] = 1
+            if len(Y.shape) == 2:
+                Y[i] = self.char_indices[c]
+            elif len(Y.shape) == 3:
+                Y[i, self.char_indices[c]] = 1
+            else:
+                raise Exception("Code should never reach here, dimension of X can only be 1 or 2")
 
     def encode_into(self, X, C):
         for i, c in enumerate(C):
@@ -225,7 +233,7 @@ class OptimizingCharacterTable(CharacterTable):
     def translate(self, astring):
         return astring.translate(self.translate_table)
 
-
+transformer = True
 class ModelSerializer():
     def __init__(self,
                  archfile=None,
@@ -253,10 +261,20 @@ class ModelSerializer():
         if self.versioned:
             weight_fname += '.' + str(self.saved_counter)
         model.save_weights(weight_fname, overwrite=True)
+
+        # transformer save
+        if transformer:
+            model.save(self.weightfile)
         logging.info('Done saving model')
 
     def load_model(self):
         logging.info('Loading model architecture')
+        # todo load transformer model, require keras_bert
+        if transformer:
+            model = tensorflow.keras.models.load_model(self.weightfile, custom_objects=get_custom_objects())
+            return model
+        print('Not transformer!')
+
         with open(self.archfile, 'r') as arch:
             arch_data = arch.read()
             model = self.model_creator_from_json(arch_data)
@@ -668,6 +686,7 @@ class Trainer():
 
     def next_train_set_as_np(self):
         x_strs, y_str_list, weight_list = self.pwd_list.next_chunk()
+        # todo input pattern modify for transformer
         x_vec = self.prepare_x_data(x_strs)
         y_vec = self.prepare_y_data(y_str_list)
         weight_vec = np.zeros((len(weight_list)))
@@ -679,7 +698,11 @@ class Trainer():
         return self.ctable.encode_many(x_strs)
 
     def prepare_y_data(self, y_str_list):
-        y_vec = np.zeros((len(y_str_list), self.ctable.vocab_size),
+        if transformer:
+            y_vec = np.zeros((len(y_str_list), 1),
+                             dtype=np.int)
+        else:
+            y_vec = np.zeros((len(y_str_list), self.ctable.vocab_size),
                          dtype=np.bool)
         self.ctable.y_encode_into(y_vec, y_str_list)
         return y_vec
@@ -759,6 +782,22 @@ class Trainer():
 
         return model
 
+    # todo model modifty to transformer
+    def build_model_transformer(self, ):
+        model = get_model(
+            token_num=self.ctable.vocab_size,
+            embed_dim=32,
+            encoder_num=2,
+            decoder_num=2,
+            head_num=4,
+            hidden_dim=128,
+            dropout_rate=0.05,
+            use_same_embed=False,  # Use different embeddings for different languages
+        )
+        model.compile('adam', 'sparse_categorical_crossentropy', metrics=['acc'])
+        model.summary()
+        self.model = model
+
     def build_model(self, model=None):
 
         if self.multi_gpu >= 2:
@@ -829,6 +868,22 @@ class Trainer():
     def training_step(self, x_all, y_all, w_all):
         x_train, x_val, y_train, y_val, w_train, w_val = self.test_set(
             x_all, y_all, w_all)
+        if transformer:
+            # todo construct decode input
+            decoder_input = np.array([[0] + [y_train[_]] for _ in range(len(y_train))])
+            decode_output = np.array([[y] for y in y_train])
+            training = self.model.fit(
+                x=[x_train, y_train],
+                y=decode_output,
+                epochs=2,
+                batch_size=32,
+                verbose=1,
+                validation_data=([x_val, y_val], np.array([[y] for y in y_val]))
+            )
+            print(training)
+            train_loss, train_accuracy = training.history['loss'][-1], training.history['acc'][-1]
+            test_loss, test_accuracy = training.history['val_loss'][-1], training.history['val_acc'][-1]
+            return (train_loss, train_accuracy, test_loss, test_accuracy)
         train_loss, train_accuracy = self.model.train_on_batch(
             x_train, y_train, sample_weight=w_train)
         test_loss, test_accuracy = self.model.test_on_batch(
@@ -901,6 +956,8 @@ class Trainer():
 
     def train(self, serializer):
         logging.info('Building model...')
+        if transformer:
+            self.build_model_transformer()
         self.build_model(self.model)
         logging.info('Done compiling model. Beginning training...')
         self.train_model(serializer)
@@ -1831,7 +1888,13 @@ class Guesser():
         return self.conditional_probs_many([astring])[0][0].copy()
 
     def conditional_probs_many(self, astring_list):
-        if self.config.sequence_model == Sequence.MANY_TO_MANY:
+        if transformer:
+            # todo predict 的时候需要修改的地方
+            decoder_input = np.array([self.ctable.encode('', maxlen=1) for _ in range(len(astring_list))])
+            answer = self.model.predict([self.ctable.encode_many(astring_list), decoder_input],
+                                        verbose=0,
+                                        batch_size=self.chunk_size_guesser)
+        elif self.config.sequence_model == Sequence.MANY_TO_MANY:
             predict_strings, astring_list = self.ctable.encode_many_chunks(astring_list,
                                                                            self.config.max_len)
             answer = self.model.predict(predict_strings,
