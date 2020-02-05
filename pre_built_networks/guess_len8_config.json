@@ -1,7 +1,7 @@
 {
     "args" : {
         "arch_file" : "arch.json",
-        "weight_file" : "weight.h5.3",
+        "weight_file" : "weight.h5",
         "log_file" : "guess_log.txt",
         "enumerate_ofile": "g1_len8.tsv"
     },
