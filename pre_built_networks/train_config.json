@@ -4,7 +4,7 @@
         "weight_file" : "weight.h5",
         "log_file" : "train_log.txt",
         "pwd_file" : [
-            "data/train.txt"
+            "whq.txt"
         ],
         "pwd_format" : [
             "list"
@@ -44,7 +44,7 @@
         "rare_character_optimization_guessing" : false,
         "no_end_word_cache" : true,
         "intermediate_fname" : "intermediate_data.json",
-        "save_model_versioned" : true,
+        "save_model_versioned" : false,
         "parallel_guessing" : false,
         "lower_probability_threshold" : 1e-7,
         "chunk_size_guesser" : 10000,

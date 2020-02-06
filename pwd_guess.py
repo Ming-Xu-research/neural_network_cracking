@@ -129,9 +129,9 @@ class CharacterTable():
 
     def y_encode_into(self, Y, C):
         for i, c in enumerate(C):
-            if len(Y.shape) == 2:
+            if len(Y.shape) == 1 or transformer:
                 Y[i] = self.char_indices[c]
-            elif len(Y.shape) == 3:
+            elif len(Y.shape) == 2:
                 Y[i, self.char_indices[c]] = 1
             else:
                 raise Exception("Code should never reach here, dimension of X can only be 1 or 2")
@@ -147,7 +147,7 @@ class CharacterTable():
 
     def encode(self, C, maxlen=None):
         maxlen = maxlen if maxlen else self.maxlen
-        if self.embedding:
+        if self.embedding or transformer:
             X = np.zeros((maxlen), dtype=np.int8)
         else:
             X = np.zeros((maxlen, len(self.chars)))
@@ -271,7 +271,7 @@ class ModelSerializer():
         logging.info('Loading model architecture')
         # todo load transformer model, require keras_bert
         if transformer:
-            model = tensorflow.keras.models.load_model(self.weightfile, custom_objects=get_custom_objects())
+            model = keras.models.load_model(self.weightfile, custom_objects=get_custom_objects())
             return model
         print('Not transformer!')
 
