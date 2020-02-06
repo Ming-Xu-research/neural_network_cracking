@@ -794,6 +794,7 @@ class Trainer():
             dropout_rate=0.05,
             use_same_embed=False,  # Use different embeddings for different languages
         )
+        self.model_to_save = model
         model.compile('adam', 'sparse_categorical_crossentropy', metrics=['acc'])
         model.summary()
         self.model = model
