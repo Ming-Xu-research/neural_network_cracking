@@ -3,15 +3,16 @@
         "arch_file" : "arch.json",
         "weight_file" : "weight.h5",
         "log_file" : "train_log.txt",
+	"log_level" : "debug",
         "pwd_file" : [
-            "whq.txt"
+            "data/train.txt"
         ],
         "pwd_format" : [
             "list"
         ]
     },
     "config" : {
-        "training_chunk" : 1000,
+        "training_chunk" : 128,
         "training_main_memory_chunk": 10000000,
         "min_len" : 8,
         "max_len" : 30,

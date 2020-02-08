@@ -47,6 +47,8 @@ from enum import IntEnum
 import pylru
 
 from keras_transformer import get_model, decode
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'
+logging.getLogger("tensorflow").setLevel(logging.INFO)
 import tensorflow
 from keras_bert import get_custom_objects
 
@@ -2444,10 +2446,14 @@ def init_logging(args):
         sys.stderr.write('Uncaught exception!\n %s\n' % (value))
     sys.excepthook = except_hook
     sys.setcheckinterval = 1000
+    file_handler = logging.FileHandler(filename='tmp.log')
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    handlers = [file_handler, stdout_handler] 
     log_format = '%(asctime)-15s %(levelname)s: %(message)s'
     log_level = log_level_map[args['log_level']]
+    print(args['log_file'], log_level)
     if args['log_file']:
-        logging.basicConfig(filename=args['log_file'],
+        logging.basicConfig(handlers=handlers,
                             level=log_level, format=log_format)
     else:
         logging.basicConfig(level=log_level, format=log_format)
