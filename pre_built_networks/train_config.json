@@ -3,9 +3,9 @@
         "arch_file" : "arch.json",
         "weight_file" : "weight.h5",
         "log_file" : "train_log.txt",
-	"log_level" : "debug",
+	    "log_level" : "debug",
         "pwd_file" : [
-            "data/train.txt"
+            "whq.txt"
         ],
         "pwd_format" : [
             "list"
@@ -20,7 +20,7 @@
         "chunk_print_interval" : 100,
         "layers" : 2,
         "hidden_size" : 1000,
-        "generations" : 3,
+        "generations" : 20,
         "training_accuracy_threshold" : -1,
         "train_test_ratio" : 20,
         "model_type" : "LSTM",

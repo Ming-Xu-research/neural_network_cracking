@@ -56,6 +56,7 @@ import generator
 
 PASSWORD_END = '\n'
 PASSWORD_START = '\t'
+CUSTOM_START = '\b'
 SYMBOLS = '~!@#$%^&*(),.<>/?\'"{}[]\\|-_=+;: `'
 FNAME_PREFIX_SUBPROCESS_CONFIG = 'child_process.'
 FNAME_PREFIX_PROCESS_LOG = 'log.child_process.'
@@ -236,6 +237,18 @@ class OptimizingCharacterTable(CharacterTable):
         return astring.translate(self.translate_table)
 
 transformer = True
+
+def get_decoder_input(x):
+    decoder_input = []
+    for i in range(len(x)):
+        for j in range(len(x[i])):
+            if j == len(x[i]) - 1:
+                decoder_input.append([x[i, j]])
+            elif x[i, j + 1] == 1:
+                decoder_input.append([x[i, j]])
+                break
+    return np.array(decoder_input)
+
 class ModelSerializer():
     def __init__(self,
                  archfile=None,
@@ -540,6 +553,8 @@ class ModelDefaults():
     def sequence_model_updates(self):
         if self.sequence_model == Sequence.MANY_TO_MANY:
             self.char_bag += PASSWORD_START
+        if transformer:
+            self.char_bag += CUSTOM_START
 
 class BasePreprocessor():
     def __init__(self, config=ModelDefaults()):
@@ -873,15 +888,23 @@ class Trainer():
             x_all, y_all, w_all)
         if transformer:
             # todo construct decode input
-            decoder_input = np.array([[0] + [y_train[_]] for _ in range(len(y_train))])
+            decoder_input = []
+            for i in range(len(x_train)):
+                for j in range(len(x_train[i])):
+                    if j == len(x_train[i])-1:
+                        decoder_input.append([x_train[i, j]])
+                    elif x_train[i, j+1] == 1:
+                        decoder_input.append([x_train[i, j]])
+                        break
+            decoder_input = np.array(decoder_input)
             decode_output = np.array([[y] for y in y_train])
             training = self.model.fit(
-                x=[x_train, y_train],
+                x=[x_train, decoder_input],
                 y=decode_output,
                 epochs=2,
                 batch_size=32,
                 verbose=1,
-                validation_data=([x_val, y_val], np.array([[y] for y in y_val]))
+                validation_data=([x_val, get_decoder_input(x_val)], np.array([[y] for y in y_val]))
             )
             print(training)
             train_loss, train_accuracy = training.history['loss'][-1], training.history['acc'][-1]
@@ -1631,7 +1654,7 @@ class PasswordTemplateSerializer(DelegatingSerializer):
                 cur_template[1:], cur_pwd + cur_template[0], cur_prob)
 
     def serialize(self, pwd_template, prob):
-        self.recursive_helper(pwd_template, '', prob)
+        self.recursive_helper(pwd_template, CUSTOM_START, prob)
 
 # Initialized later
 policy_list = {}
@@ -1894,8 +1917,9 @@ class Guesser():
     def conditional_probs_many(self, astring_list):
         if transformer:
             # todo predict 的时候需要修改的地方
-            decoder_input = np.array([self.ctable.encode('', maxlen=1) for _ in range(len(astring_list))])
-            answer = self.model.predict([self.ctable.encode_many(astring_list), decoder_input],
+            decoder_input = np.array([self.ctable.encode(CUSTOM_START, maxlen=1) for _ in range(len(astring_list))])
+            encoder_input = self.ctable.encode_many(astring_list)
+            answer = self.model.predict([encoder_input, get_decoder_input(encoder_input)],
                                         verbose=0,
                                         batch_size=self.chunk_size_guesser)
         elif self.config.sequence_model == Sequence.MANY_TO_MANY:
@@ -1920,7 +1944,8 @@ class Guesser():
             assert answer.shape == (len(predict_strings),
                                     self.config.context_length, self.ctable.vocab_size)
         else:
-            assert answer.shape == (len(astring_list), 1, self.ctable.vocab_size)
+            print(answer.shape)
+            # assert answer.shape == (len(astring_list), 1, self.ctable.vocab_size)
         if self.relevel_not_matching_passwords:
             self.relevel_prediction_many(answer, astring_list)
         return answer
@@ -1984,16 +2009,16 @@ class Guesser():
             self.super_node_recur(node_batch)
             node_batch = []
 
-    def _recur(self, astring='', prob=1):
+    def _recur(self, astring=CUSTOM_START, prob=1):
         self.super_node_recur([(astring, prob)])
 
     def starting_node(self, default_value):
         return default_value
 
-    def guess(self, astring='', prob=1):
+    def guess(self, astring=CUSTOM_START, prob=1):
         self._recur(self.starting_node(astring), prob)
 
-    def complete_guessing(self, start='', start_prob=1):
+    def complete_guessing(self, start=CUSTOM_START, start_prob=1):
         logging.info('Enumerating guesses starting at %s, %s...',
                      start, start_prob)
         self.guess(start, start_prob)
@@ -2207,7 +2232,7 @@ class RandomWalkGuesser(Guesser):
             if self.config.sequence_model == Sequence.MANY_TO_MANY:
                 yield self.starting_node('\t'), 1, 1, 0
             else:
-                yield self.starting_node(''), 1, 1, 0
+                yield self.starting_node(CUSTOM_START), 1, 1, 0
 
     def calc_error(self):
         return self.config.random_walk_confidence_bound_z_value * (
@@ -2239,7 +2264,7 @@ class RandomWalkGuesser(Guesser):
                 pwd, prob, cost, stdev, len(self.estimates), error))
             self.ostream.flush()
 
-    def guess(self, astring='', prob=1):
+    def guess(self, astring=CUSTOM_START, prob=1):
         pwds_probs = list(self.calculate_probs_from_file())
         logging.debug('Beginning probabilities: %s', json.dumps(
             pwds_probs, indent=4))
@@ -2288,7 +2313,7 @@ class RandomGenerator(RandomWalkDelAmico):
     def make_serializer(self, method=None, make_rare=None):
         return super().make_serializer(method='human', make_rare=make_rare)
 
-    def guess(self, astring='', prob=1):
+    def guess(self, astring=CUSTOM_START, prob=1):
         self.setup()
         for _ in range(self.config.random_walk_upper_bound):
             self.super_node_recur(list(self.seed_data()))
