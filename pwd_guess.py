@@ -56,7 +56,12 @@ import generator
 
 PASSWORD_END = '\n'
 PASSWORD_START = '\t'
-CUSTOM_START = '\b'
+
+transformer = True
+with_context = True #添加context进行训练，最后一个字符作为带预测的字符
+CUSTOM_START = '\t' if transformer and with_context else ''  # 用于Monte Carlo sample 口令
+context_length = 6
+
 SYMBOLS = '~!@#$%^&*(),.<>/?\'"{}[]\\|-_=+;: `'
 FNAME_PREFIX_SUBPROCESS_CONFIG = 'child_process.'
 FNAME_PREFIX_PROCESS_LOG = 'log.child_process.'
@@ -98,7 +103,10 @@ class CharacterTable():
         if len(astring) > maxlen:
             return astring[len(astring) - maxlen:]
         if self.padding_character:
-            return astring + (PASSWORD_END * (maxlen - len(astring)))
+            if transformer and with_context: # sample password 的时候需要在开头填上start字符
+                return (PASSWORD_START * (maxlen - len(astring))) + astring
+            else:
+                return astring + (PASSWORD_END * (maxlen - len(astring)))
         return astring
 
     def encode_many(self, string_list, maxlen=None, y_vec=False):
@@ -116,6 +124,7 @@ class CharacterTable():
     def encode_many_chunks(self, string_list, max_input_str_len, maxlen=None, y_vec=False):
         maxlen = maxlen if maxlen else self.maxlen
         chunks_str_list = []
+        # todo context set interval
         iters = list(range(maxlen, max_input_str_len, maxlen // 2))
         iters.append(max_input_str_len)
         for a_string in string_list:
@@ -127,8 +136,10 @@ class CharacterTable():
                 chunk = a_string[i-maxlen:i]
                 chunks_str_list.append(chunk)
                 prev_iter = i
-
-        return self.encode_many(chunks_str_list, maxlen, y_vec=y_vec), chunks_str_list
+        if transformer and with_context:
+            return self.encode_many(chunks_str_list, context_length, y_vec=y_vec), chunks_str_list
+        else:
+            return self.encode_many(chunks_str_list, maxlen, y_vec=y_vec), chunks_str_list
 
     def y_encode_into(self, Y, C):
         for i, c in enumerate(C):
@@ -169,13 +180,13 @@ class CharacterTable():
         if (config.uppercase_character_optimization or
               config.rare_character_optimization):
             return OptimizingCharacterTable(
-                config.char_bag, config.context_length,
+                config.char_bag, config.max_len,
                 config.get_intermediate_info('rare_character_bag'),
                 config.uppercase_character_optimization,
                 padding_character=config.padding_character,
                 embedding=config.embedding_layer)
 
-        return CharacterTable(config.char_bag, config.context_length,
+        return CharacterTable(config.char_bag, config.max_len,
                               padding_character=config.padding_character,
                               embedding=config.embedding_layer,
                               sequence_model=config.sequence_model)
@@ -236,18 +247,28 @@ class OptimizingCharacterTable(CharacterTable):
     def translate(self, astring):
         return astring.translate(self.translate_table)
 
-transformer = True
-
 def get_decoder_input(x):
+    if with_context:
+        return x
     decoder_input = []
     for i in range(len(x)):
+        last_index = len(x[i])-1
         for j in range(len(x[i])):
-            if j == len(x[i]) - 1:
-                decoder_input.append([x[i, j]])
-            elif x[i, j + 1] == 1:
-                decoder_input.append([x[i, j]])
+            if x[i, j] == 1:
+                last_index = j
                 break
+        decoder_input.append([x[i, last_index]])
     return np.array(decoder_input)
+
+def get_decoder_output(x):
+    decode_output = []
+    for y in x:
+        tmp = []
+        for y_ in y:
+            tmp.append([y_])
+        decode_output.append(tmp)
+    return np.array(decode_output)
+
 
 class ModelSerializer():
     def __init__(self,
@@ -337,7 +358,7 @@ class ModelDefaults():
         string.ascii_lowercase + string.ascii_uppercase + string.digits +
         SYMBOLS + PASSWORD_END)
     model_type = 'LSTM'
-    sequence_model = Sequence.MANY_TO_ONE
+    sequence_model = Sequence.MANY_TO_MANY
     hidden_size = 128
     layers = 1
     max_len = 40
@@ -553,8 +574,8 @@ class ModelDefaults():
     def sequence_model_updates(self):
         if self.sequence_model == Sequence.MANY_TO_MANY:
             self.char_bag += PASSWORD_START
-        if transformer:
-            self.char_bag += CUSTOM_START
+        # if transformer:
+        #     self.char_bag += CUSTOM_START
 
 class BasePreprocessor():
     def __init__(self, config=ModelDefaults()):
@@ -712,7 +733,10 @@ class Trainer():
         return shuffle(x_vec, y_vec, weight_vec)
 
     def prepare_x_data(self, x_strs):
-        return self.ctable.encode_many(x_strs)
+        if transformer and with_context:
+            return self.ctable.encode_many(x_strs, context_length)
+        else:
+            return self.ctable.encode_many(x_strs)
 
     def prepare_y_data(self, y_str_list):
         if transformer:
@@ -888,23 +912,15 @@ class Trainer():
             x_all, y_all, w_all)
         if transformer:
             # todo construct decode input
-            decoder_input = []
-            for i in range(len(x_train)):
-                for j in range(len(x_train[i])):
-                    if j == len(x_train[i])-1:
-                        decoder_input.append([x_train[i, j]])
-                    elif x_train[i, j+1] == 1:
-                        decoder_input.append([x_train[i, j]])
-                        break
-            decoder_input = np.array(decoder_input)
-            decode_output = np.array([[y] for y in y_train])
+            decoder_input = get_decoder_input(x_train)
+            decoder_output = get_decoder_output(y_train)
             training = self.model.fit(
-                x=[x_train, decoder_input],
-                y=decode_output,
+                x=[x_train, get_decoder_input(x_train)],
+                y=get_decoder_output(y_train),
                 epochs=2,
-                batch_size=32,
+                batch_size=64,
                 verbose=1,
-                validation_data=([x_val, get_decoder_input(x_val)], np.array([[y] for y in y_val]))
+                validation_data=([x_val, get_decoder_input(x_val)], get_decoder_output(y_val))
             )
             print(training)
             train_loss, train_accuracy = training.history['loss'][-1], training.history['acc'][-1]
@@ -1060,6 +1076,7 @@ class ManyToManyTrainer(Trainer):
         return model
 
     def next_train_set_as_np(self):
+        # todo modify input
         x_strs, y_str_list, weight_list = self.pwd_list.next_chunk()
         x_vec = self.prepare_x_data(x_strs)
         y_vec = self.prepare_y_data(y_str_list)
@@ -1069,17 +1086,31 @@ class ManyToManyTrainer(Trainer):
         return shuffle(x_vec, y_vec, weight_vec)
 
     def prepare_y_data(self, y_str_list):
-        y_vec = self.ctable.encode_many(y_str_list, y_vec=True)
+        if transformer and with_context:
+            y_vec = self.ctable.encode_many(y_str_list, maxlen=context_length, y_vec=False)
+        else:
+            y_vec = self.ctable.encode_many(y_str_list, y_vec=True)
         return y_vec
 
 class ManyToManyPreprocessor(Preprocessor):
+    # todo many-many 的训练方式，设置context右移
     def all_prefixes(self, pwd):
+        if transformer:
+            pwd = PASSWORD_START*context_length + pwd
+            print('Context Length: ', self.config.context_length, '; pwd: ', pwd)
+            return [pwd[i:i+self.config.context_length] for i in range(0, len(pwd) - self.config.context_length + 1)]
         return [PASSWORD_START + pwd]
 
     def all_suffixes(self, pwd):
+        if transformer:
+            pwd = PASSWORD_START*(context_length-1) + pwd + PASSWORD_END
+            print('Context Length: ', self.config.context_length, '; pwd: ', pwd)
+            return [pwd[i:i+self.config.context_length] for i in range(0, len(pwd) - self.config.context_length + 1)]
         return [pwd + PASSWORD_END]
 
     def repeat_weight(self, pwd):
+        if transformer:
+            return [self.password_weight(pwd) for _ in range(0, len(pwd) + 1)]
         return [self.password_weight(pwd)]
 
 class PwdList():
@@ -1515,15 +1546,24 @@ class ProbabilityCalculator():
 
     def calc_probabilities(self, pwd_list):
         prev_prob = 1
+        pwd = ''
         for item in self.probability_stream(pwd_list):
             input_string, next_char, output_prob = item
+            if prev_prob == 1:
+                pwd = input_string
+            else:
+                pwd += next_char
             if next_char != PASSWORD_END or self.prefixes is False:
                 prev_prob *= output_prob
             if next_char == PASSWORD_END:
                 if self.template_probs:
                     prev_prob *= self.pts.find_real_pwd(
                         self.ctable.translate(input_string), input_string)
-                yield (input_string, prev_prob)
+                print(pwd[:-1], prev_prob)
+                if transformer and with_context:
+                    yield (pwd[context_length:-1], prev_prob)
+                else:
+                    yield (input_string, prev_prob)
                 prev_prob = 1
 
         self.preproc.reset()
@@ -1532,18 +1572,24 @@ class ManyToManyProbabilityCalculator(ProbabilityCalculator):
     def probability_stream(self, pwd_list):
         self.preproc.begin(pwd_list)
         x_strings, y_strings, _ = self.preproc.next_chunk()
-        logging.debug('Initial probabilities: %s, %s', x_strings, y_strings)
+        logging.info('Initial probabilities: %s, %s', x_strings, y_strings)
         while len(x_strings) != 0:
-            probs = self.guesser.batch_prob(x_strings)
+
             y_indices, y_strings = self.ctable.encode_many_chunks(y_strings,
                                                                   self.config.max_len, y_vec=True)
             _, x_strings = self.ctable.encode_many_chunks(x_strings, self.config.max_len)
+            probs = self.guesser.batch_prob(x_strings)
             assert len(probs) == len(y_indices) == len(y_strings) == len(x_strings)
-            for i, _ in enumerate(y_strings):
-                for j, y_idx in enumerate(y_indices[i]):
-                    if j == len(x_strings[i]):
-                        break
-                    yield x_strings[i], y_strings[i][j], np.asscalar(probs[i][j][y_idx])
+            if not transformer:
+                for i, _ in enumerate(y_strings):
+                    for j, y_idx in enumerate(y_indices[i]):
+                        if j == len(x_strings[i]):
+                            break
+                        yield x_strings[i], y_strings[i][j], np.asscalar(probs[i][j][y_idx])
+            else:
+                # todo 取生成string的最后一个字符作为target
+                for i, _ in enumerate(y_strings):
+                    yield x_strings[i], y_strings[i][-1], np.asscalar(probs[i][context_length-1][y_indices[i][context_length-1]])# 5为context-1
             x_strings, y_strings, _ = self.preproc.next_chunk()
 
 class PasswordTemplateSerializer(DelegatingSerializer):
@@ -1918,8 +1964,11 @@ class Guesser():
         if transformer:
             # todo predict 的时候需要修改的地方
             decoder_input = np.array([self.ctable.encode(CUSTOM_START, maxlen=1) for _ in range(len(astring_list))])
-            encoder_input = self.ctable.encode_many(astring_list)
-            answer = self.model.predict([encoder_input, get_decoder_input(encoder_input)],
+            if with_context:
+                encoder_input = self.ctable.encode_many(astring_list, maxlen=context_length)
+            else:
+                encoder_input = self.ctable.encode_many(astring_list)
+            answer = self.model.predict([encoder_input, encoder_input],
                                         verbose=0,
                                         batch_size=self.chunk_size_guesser)
         elif self.config.sequence_model == Sequence.MANY_TO_MANY:
@@ -1940,7 +1989,7 @@ class Guesser():
         # shape than the library before 0.3.1
         if len(answer.shape) == 2:
             answer = np.expand_dims(answer, axis=1)
-        if self.config.sequence_model == Sequence.MANY_TO_MANY:
+        if not transformer and self.config.sequence_model == Sequence.MANY_TO_MANY:
             assert answer.shape == (len(predict_strings),
                                     self.config.context_length, self.ctable.vocab_size)
         else:
@@ -2192,12 +2241,16 @@ class RandomWalkGuesser(Guesser):
         for i, cur_node in enumerate(real_node_list):
             astring, prob = cur_node[0], cur_node[1]
             if self.config.sequence_model == Sequence.MANY_TO_MANY:
-                poss_next = self.next_node_fn(
-                    self, astring, prob, predictions[i][len(astring)-1])
+                if transformer:
+                    poss_next = self.next_node_fn(
+                        self, astring, prob, predictions[i][-1])
+                else:
+                    poss_next = self.next_node_fn(
+                        self, astring, prob, predictions[i][len(astring) - 1])
             else:
                 poss_next = self.next_node_fn(
                     self, astring, prob, predictions[i][0])
-            if len(poss_next) == 0:
+            if len(poss_next) == 0: # sample出了一个口令
                 self.spinoff_node(cur_node)
                 continue
             next_nodes.append(self.add_to_next_node(
@@ -2313,6 +2366,7 @@ class RandomGenerator(RandomWalkDelAmico):
     def make_serializer(self, method=None, make_rare=None):
         return super().make_serializer(method='human', make_rare=make_rare)
 
+    # todo monte carlo sample
     def guess(self, astring=CUSTOM_START, prob=1):
         self.setup()
         for _ in range(self.config.random_walk_upper_bound):
@@ -2376,7 +2430,7 @@ class DelAmicoCalculator(GuessSerializer):
 
     def finish(self):
         logging.info('Guessed %s passwords', self.get_total_guessed())
-        writer = csv.writer(self.ostream, delimiter='\t', quotechar=None)
+        writer = csv.writer(self.ostream, delimiter='\t', quotechar=None, escapechar='\\')
         for item in self.get_stats():
             writer.writerow(item)
         self.ostream.flush()
