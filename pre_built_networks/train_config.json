@@ -1,11 +1,11 @@
 {
     "args" : {
-        "arch_file" : "arch.json",
-        "weight_file" : "weight.h5",
+        "arch_file" : "arch_5.json",
+        "weight_file" : "weight_5.h5",
         "log_file" : "train_log.txt",
-	    "log_level" : "debug",
+	"log_level" : "debug",
         "pwd_file" : [
-            "whq.txt"
+            "data/train.txt"
         ],
         "pwd_format" : [
             "list"
@@ -16,11 +16,11 @@
         "training_main_memory_chunk": 10000000,
         "min_len" : 8,
         "max_len" : 16,
-        "context_length" : 6,
+        "context_length" : 8,
         "chunk_print_interval" : 100,
         "layers" : 2,
         "hidden_size" : 1000,
-        "generations" : 5,
+        "generations" : 20,
         "training_accuracy_threshold" : -1,
         "train_test_ratio" : 20,
         "model_type" : "LSTM",

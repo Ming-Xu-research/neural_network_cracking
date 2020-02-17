@@ -60,7 +60,7 @@ PASSWORD_START = '\t'
 transformer = True
 with_context = True #添加context进行训练，最后一个字符作为带预测的字符
 CUSTOM_START = '\t' if transformer and with_context else ''  # 用于Monte Carlo sample 口令
-context_length = 6
+context_length = 8
 
 SYMBOLS = '~!@#$%^&*(),.<>/?\'"{}[]\\|-_=+;: `'
 FNAME_PREFIX_SUBPROCESS_CONFIG = 'child_process.'
