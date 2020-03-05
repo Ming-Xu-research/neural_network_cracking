@@ -56,11 +56,12 @@ import generator
 
 PASSWORD_END = '\n'
 PASSWORD_START = '\t'
-
+PASSWORD_PADDING = '\n'
 transformer = True
 with_context = True #添加context进行训练，最后一个字符作为带预测的字符
+sub_word = True # 设置sub-word作为训练的粒度
 CUSTOM_START = '\t' if transformer and with_context else ''  # 用于Monte Carlo sample 口令
-context_length = 6
+context_length = 8
 
 SYMBOLS = '~!@#$%^&*(),.<>/?\'"{}[]\\|-_=+;: `'
 FNAME_PREFIX_SUBPROCESS_CONFIG = 'child_process.'
@@ -104,7 +105,10 @@ class CharacterTable():
             return astring[len(astring) - maxlen:]
         if self.padding_character:
             if transformer and with_context: # sample password 的时候需要在开头填上start字符
-                return (PASSWORD_START * (maxlen - len(astring))) + astring
+                if sub_word:
+                    return (list(PASSWORD_START * (maxlen - len(astring)))) + astring
+                else:
+                    return (PASSWORD_START * (maxlen - len(astring))) + astring
             else:
                 return astring + (PASSWORD_END * (maxlen - len(astring)))
         return astring
@@ -113,7 +117,10 @@ class CharacterTable():
         maxlen = maxlen if maxlen else self.maxlen
         x_str_list = map(lambda x: self.pad_to_len(x, maxlen), string_list)
         if transformer or (self.embedding and not y_vec):
-            x_vec = np.zeros(shape=(len(string_list), maxlen), dtype=np.int8)
+            if sub_word:
+                x_vec = np.zeros(shape=(len(string_list), maxlen), dtype=np.int16)
+            else:
+                x_vec = np.zeros(shape=(len(string_list), maxlen), dtype=np.int8)
         else:
             x_vec = np.zeros((len(string_list), maxlen, self.vocab_size),
                          dtype=np.bool)
@@ -176,9 +183,18 @@ class CharacterTable():
         return astring
 
     @staticmethod
+    def read_vocabulary(filename, threshold=0):
+        vocabulary = collections.defaultdict(int)
+        with open(filename) as f:
+            for line in f.readlines():
+                vocabs = line.strip('\n').split(' ')
+                for vocab in vocabs:
+                    vocabulary[vocab] += 1
+        return {k: v for k, v in vocabulary.items() if v > threshold}
+    @staticmethod
     def fromConfig(config):
-        if (config.uppercase_character_optimization or
-              config.rare_character_optimization):
+
+        if config.uppercase_character_optimization or config.rare_character_optimization:
             return OptimizingCharacterTable(
                 config.char_bag, config.max_len,
                 config.get_intermediate_info('rare_character_bag'),
@@ -248,13 +264,13 @@ class OptimizingCharacterTable(CharacterTable):
         return astring.translate(self.translate_table)
 
 def get_decoder_input(x):
-    if with_context:
+    if with_context:    # TODO：修改decoder-input。可以尝试修改为截取部分长度作为输入
         return x
     decoder_input = []
     for i in range(len(x)):
         last_index = len(x[i])-1
         for j in range(len(x[i])):
-            if x[i, j] == 1:
+            if x[i, j] == 1:    # 找到填充字符开始的位置，相当于是找到
                 last_index = j
                 break
         decoder_input.append([x[i, last_index]])
@@ -305,7 +321,6 @@ class ModelSerializer():
 
     def load_model(self):
         logging.info('Loading model architecture')
-        # todo load transformer model, require keras_bert
         if transformer:
             model = keras.models.load_model(self.weightfile, custom_objects=get_custom_objects())
             return model
@@ -357,6 +372,11 @@ class ModelDefaults():
     char_bag = (
         string.ascii_lowercase + string.ascii_uppercase + string.digits +
         SYMBOLS + PASSWORD_END)
+    # todo: 这里修改table中的字典初始化: 1. 读取vocabulary 2. 合并 3. 这里考虑是否要加个阈值
+    if sub_word:
+        print('Raw char bag: ', char_bag)
+        subword_bag = set(CharacterTable.read_vocabulary('data/out_train.txt').keys())
+        char_bag = set(char_bag) | subword_bag
     model_type = 'LSTM'
     sequence_model = Sequence.MANY_TO_MANY
     hidden_size = 128
@@ -573,7 +593,10 @@ class ModelDefaults():
 
     def sequence_model_updates(self):
         if self.sequence_model == Sequence.MANY_TO_MANY:
-            self.char_bag += PASSWORD_START
+            if sub_word:
+                self.char_bag.add(PASSWORD_START)
+            else:
+                self.char_bag += PASSWORD_START
         # if transformer:
         #     self.char_bag += CUSTOM_START
 
@@ -724,7 +747,7 @@ class Trainer():
 
     def next_train_set_as_np(self):
         x_strs, y_str_list, weight_list = self.pwd_list.next_chunk()
-        # todo input pattern modify for transformer
+        # todo input pattern modify for MANY_TO_ONE pattern
         x_vec = self.prepare_x_data(x_strs)
         y_vec = self.prepare_y_data(y_str_list)
         weight_vec = np.zeros((len(weight_list)))
@@ -823,7 +846,6 @@ class Trainer():
 
         return model
 
-    # todo model modifty to transformer
     def build_model_transformer(self, ):
         model = get_model(
             token_num=self.ctable.vocab_size,
@@ -1076,7 +1098,7 @@ class ManyToManyTrainer(Trainer):
         return model
 
     def next_train_set_as_np(self):
-        # todo modify input
+        # todo modify input for MANY_TO_MANY pattern
         x_strs, y_str_list, weight_list = self.pwd_list.next_chunk()
         x_vec = self.prepare_x_data(x_strs)
         y_vec = self.prepare_y_data(y_str_list)
@@ -1096,21 +1118,32 @@ class ManyToManyPreprocessor(Preprocessor):
     # todo many-many 的训练方式，设置context右移
     def all_prefixes(self, pwd):
         if transformer:
-            pwd = PASSWORD_START*context_length + pwd
-            print('Context Length: ', self.config.context_length, '; pwd: ', pwd)
+            if sub_word:
+                pwd = (PASSWORD_START+' ')*self.config.context_length + pwd
+                pwd = pwd.split(' ')
+            else:
+                pwd = PASSWORD_START * context_length + pwd
+            # print('Context Length: ', self.config.context_length, '; pwd: ', pwd)
             return [pwd[i:i+self.config.context_length] for i in range(0, len(pwd) - self.config.context_length + 1)]
         return [PASSWORD_START + pwd]
 
     def all_suffixes(self, pwd):
         if transformer:
-            pwd = PASSWORD_START*(context_length-1) + pwd + PASSWORD_END
-            print('Context Length: ', self.config.context_length, '; pwd: ', pwd)
+            if sub_word:
+                pwd = (PASSWORD_START+' ')*(self.config.context_length-1) + pwd + ' ' + PASSWORD_END
+                pwd = pwd.split(' ')
+            else:
+                pwd = PASSWORD_START * (context_length - 1) + pwd + PASSWORD_END
+            # print('Context Length: ', self.config.context_length, '; pwd: ', pwd)
             return [pwd[i:i+self.config.context_length] for i in range(0, len(pwd) - self.config.context_length + 1)]
         return [pwd + PASSWORD_END]
 
     def repeat_weight(self, pwd):
         if transformer:
-            return [self.password_weight(pwd) for _ in range(0, len(pwd) + 1)]
+            if sub_word:
+                return [self.password_weight(pwd) for _ in range(0, len(pwd.split(' ')) + 1)]
+            else:
+                return [self.password_weight(pwd) for _ in range(0, len(pwd) + 1)]
         return [self.password_weight(pwd)]
 
 class PwdList():
@@ -1276,7 +1309,8 @@ class Filterer():
         self.char_bag = config.char_bag
         if config.sequence_model == Sequence.MANY_TO_MANY:
             # Replace so that you don't accept passwords with tab character in them
-            self.char_bag = self.char_bag.replace("\t", "")
+            if not sub_word:
+                self.char_bag = self.char_bag.replace("\t", "")
         self.max_len = config.max_len
         self.min_len = config.min_len
         self.uniquify = uniquify
@@ -1290,7 +1324,8 @@ class Filterer():
     def pwd_is_valid(self, pwd, quick=False):
         if isinstance(pwd, tuple):
             pwd = ''.join(pwd)
-        pwd = pwd.strip(PASSWORD_END)
+        if sub_word:
+            pwd = pwd.strip(PASSWORD_END).split(' ')
         answer = (all(map(lambda c: c in self.char_bag, pwd)) and
                   len(pwd) <= self.max_len and
                   len(pwd) >= self.min_len)
@@ -1328,7 +1363,7 @@ class Filterer():
         for key in self.frequencies:
             char_freqs[key] = self.frequencies[key] / self.total_characters
 
-        if save_stats:
+        if save_stats and not sub_word:
             self.config.set_intermediate_info(
                 'rare_character_bag', self.rare_characters())
             logging.info('Rare characters: %s', self.rare_characters())
@@ -2647,7 +2682,11 @@ def main(args):
     except AssertionError as e:
         logging.critical('Configuration not valid %s', str(e))
         raise
-    logging.info('Configuration: %s', json.dumps(config.as_dict(), indent=4))
+    def set_default(obj):
+        if isinstance(obj, set):
+            return list(obj)
+        raise TypeError
+    logging.info('Configuration: %s', json.dumps(config.as_dict(), indent=4, default=set_default))
 
     if args['pwd_file']:
         train(args, config)

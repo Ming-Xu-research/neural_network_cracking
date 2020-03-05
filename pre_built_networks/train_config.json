@@ -14,9 +14,9 @@
     "config" : {
         "training_chunk" : 128,
         "training_main_memory_chunk": 10000000,
-        "min_len" : 8,
-        "max_len" : 16,
-        "context_length" : 6,
+        "min_len" : 0,
+        "max_len" : 30,
+        "context_length" : 8,
         "chunk_print_interval" : 100,
         "layers" : 2,
         "hidden_size" : 1000,

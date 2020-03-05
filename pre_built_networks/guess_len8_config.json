@@ -40,7 +40,7 @@
         "lower_probability_threshold" : 1e-7,
         "chunk_size_guesser" : 40000,
         "guess_serialization_method" : "delamico_random_walk",
-        "password_test_fname" : "whq.txt",
+        "password_test_fname" : "data/test.txt",
         "random_walk_seed_num" : 100,
         "max_gpu_prediction_size" : 10000,
         "random_walk_seed_iterations" : 2,
