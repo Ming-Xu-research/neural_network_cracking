@@ -60,7 +60,7 @@ PASSWORD_START = '\t'
 transformer = True
 with_context = True #添加context进行训练，最后一个字符作为带预测的字符
 CUSTOM_START = '\t' if transformer and with_context else ''  # 用于Monte Carlo sample 口令
-context_length = 8
+context_length = 12
 
 SYMBOLS = '~!@#$%^&*(),.<>/?\'"{}[]\\|-_=+;: `'
 FNAME_PREFIX_SUBPROCESS_CONFIG = 'child_process.'
@@ -828,8 +828,8 @@ class Trainer():
         model = get_model(
             token_num=self.ctable.vocab_size,
             embed_dim=32,
-            encoder_num=2,
-            decoder_num=2,
+            encoder_num=6,
+            decoder_num=6,
             head_num=4,
             hidden_dim=128,
             dropout_rate=0.05,

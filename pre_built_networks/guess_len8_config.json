@@ -1,16 +1,16 @@
 {
     "args" : {
-        "arch_file" : "arch_5.json",
-        "weight_file" : "weight_5.h5",
+        "arch_file" : "arch_10.json",
+        "weight_file" : "weight_10.h5",
         "log_file" : "guess_log.txt",
-        "enumerate_ofile": "g1_len8_8_20.tsv"
+        "enumerate_ofile": "g1_len8_6_12_20.tsv"
     },
     "config" : {
         "training_chunk" : 1000,
         "training_main_memory_chunk": 10000000,
         "min_len" : 8,
-        "max_len" : 20,
-        "context_length" : 8,
+        "max_len" : 30,
+        "context_length" : 12,
         "chunk_print_interval" : 100,
         "layers" : 2,
         "hidden_size" : 1000,
