@@ -40,7 +40,7 @@
 
         "simulated_frequency_optimization" : false,
         "randomize_training_order" : true,
-        "uppercase_character_optimization" : true,
+        "uppercase_character_optimization" : false,
         "rare_character_optimization" : false,
         "rare_character_optimization_guessing" : false,
         "no_end_word_cache" : true,
