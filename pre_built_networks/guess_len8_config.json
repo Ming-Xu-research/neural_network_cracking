@@ -1,9 +1,9 @@
 {
     "args" : {
-        "arch_file" : "arch_10.json",
-        "weight_file" : "weight_10.h5",
+        "arch_file" : "arch_11.json",
+        "weight_file" : "weight_11.h5",
         "log_file" : "guess_log.txt",
-        "enumerate_ofile": "g1_len8_6_12_20.tsv"
+        "enumerate_ofile": "g1_len8_sub_8_5.tsv"
     },
     "config" : {
         "training_chunk" : 1000,
@@ -33,7 +33,7 @@
         },
         "simulated_frequency_optimization" : false,
         "randomize_training_order" : true,
-        "uppercase_character_optimization" : true,
+        "uppercase_character_optimization" : false,
         "rare_character_optimization" : false,
         "rare_character_optimization_guessing" : false,
         "parallel_guessing" : false,
