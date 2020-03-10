@@ -850,8 +850,8 @@ class Trainer():
         model = get_model(
             token_num=self.ctable.vocab_size,
             embed_dim=32,
-            encoder_num=2,
-            decoder_num=2,
+            encoder_num=6,
+            decoder_num=6,
             head_num=4,
             hidden_dim=128,
             dropout_rate=0.05,

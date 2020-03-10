@@ -1,11 +1,11 @@
 {
     "args" : {
-        "arch_file" : "arch.json",
-        "weight_file" : "weight.h5",
+        "arch_file" : "arch_10.json",
+        "weight_file" : "weight_10.h5",
         "log_file" : "train_log.txt",
-	    "log_level" : "debug",
+	"log_level" : "debug",
         "pwd_file" : [
-            "whq.txt"
+            "data/train.txt"
         ],
         "pwd_format" : [
             "list"

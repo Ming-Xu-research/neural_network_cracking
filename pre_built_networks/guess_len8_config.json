@@ -1,9 +1,9 @@
 {
     "args" : {
-        "arch_file" : "arch.json",
-        "weight_file" : "weight.h5",
+        "arch_file" : "arch_10.json",
+        "weight_file" : "weight_10.h5",
         "log_file" : "guess_log.txt",
-        "enumerate_ofile": "g1_len8.tsv"
+        "enumerate_ofile": "g1_len8_6_12_20.tsv"
     },
     "config" : {
         "training_chunk" : 1000,
@@ -40,8 +40,8 @@
         "lower_probability_threshold" : 1e-7,
         "chunk_size_guesser" : 40000,
         "guess_serialization_method" : "delamico_random_walk",
-        "password_test_fname" : "data/out_whq.txt",
-        "random_walk_seed_num" : 100,
+        "password_test_fname" : "data/test.txt",
+        "random_walk_seed_num" : 10000,
         "max_gpu_prediction_size" : 10000,
         "random_walk_seed_iterations" : 2,
         "no_end_word_cache" : true,
