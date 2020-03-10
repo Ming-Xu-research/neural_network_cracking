@@ -58,8 +58,8 @@ PASSWORD_END = '\n'
 PASSWORD_START = '\t'
 PASSWORD_PADDING = '\n'
 transformer = True
-with_context = True #添加context进行训练，最后一个字符作为带预测的字符
-sub_word = True # 设置sub-word作为训练的粒度
+with_context = True  #添加context进行训练，最后一个字符作为带预测的字符
+sub_word = True  # 设置sub-word作为训练的粒度
 CUSTOM_START = '\t' if transformer and with_context else ''  # 用于Monte Carlo sample 口令
 context_length = 8
 
@@ -106,7 +106,7 @@ class CharacterTable():
         if self.padding_character:
             if transformer and with_context: # sample password 的时候需要在开头填上start字符
                 if sub_word:
-                    return (list(PASSWORD_START * (maxlen - len(astring)))) + astring
+                    return (list(PASSWORD_START * (maxlen - len(astring)))) + list(astring)
                 else:
                     return (PASSWORD_START * (maxlen - len(astring))) + astring
             else:
@@ -1324,7 +1324,7 @@ class Filterer():
     def pwd_is_valid(self, pwd, quick=False):
         if isinstance(pwd, tuple):
             pwd = ''.join(pwd)
-        if sub_word:
+        if sub_word and isinstance(pwd, str):
             pwd = pwd.strip(PASSWORD_END).split(' ')
         answer = (all(map(lambda c: c in self.char_bag, pwd)) and
                   len(pwd) <= self.max_len and
@@ -1587,7 +1587,10 @@ class ProbabilityCalculator():
             if prev_prob == 1:
                 pwd = input_string
             else:
-                pwd += next_char
+                if sub_word:
+                    pwd.append(next_char)
+                else:
+                    pwd += next_char
             if next_char != PASSWORD_END or self.prefixes is False:
                 prev_prob *= output_prob
             if next_char == PASSWORD_END:
@@ -1905,7 +1908,7 @@ class Guesser():
 
     def read_test_passwords(self):
         logging.info('Reading password calculator test set...')
-        filterer = Filterer(self.config, True)
+        filterer = Filterer(self.config, False)
         pwd_lister = PwdList(self.config.password_test_fname)
         pwd_input = list(pwd_lister.as_list())
         pwds = list(filterer.filter(pwd_input))
@@ -2074,7 +2077,10 @@ class Guesser():
         return self.conditional_probs_many(prefixes)
 
     def _extract_pwd_from_node(self, node_list):
+        if sub_word:
+            return map(lambda x: x[0].split(' '), node_list)
         return map(lambda x: x[0], node_list)
+
 
     def super_node_recur(self, node_list):
         if len(node_list) == 0:
@@ -2277,6 +2283,8 @@ class RandomWalkGuesser(Guesser):
             astring, prob = cur_node[0], cur_node[1]
             if self.config.sequence_model == Sequence.MANY_TO_MANY:
                 if transformer:
+                    if sub_word:
+                        astring = astring + ' '
                     poss_next = self.next_node_fn(
                         self, astring, prob, predictions[i][-1])
                 else:
@@ -2455,8 +2463,12 @@ class DelAmicoCalculator(GuessSerializer):
         for i in range(len(self.pwds), 0, -1):
             idx = i - 1
             if self.config.sequence_model == Sequence.MANY_TO_MANY:
+                if sub_word:
+                    pwdi = ''.join(self.pwds[idx]).lstrip('\t')
+                else:
+                    pwdi = self.pwds[idx].lstrip('\t')
                 yield [
-                    self.pwds[idx].lstrip('\t'), self.probs[idx], out_guess_numbers[idx],
+                    pwdi, self.probs[idx], out_guess_numbers[idx],
                     out_stdev[idx], num_guess, out_error[idx]]
             else:
                 yield [
